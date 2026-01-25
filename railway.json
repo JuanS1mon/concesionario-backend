@@ -1,7 +1,7 @@
 {
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "pip install -r requirements.txt && alembic upgrade head"
+    "buildCommand": "pip install -r requirements.txt && cd /app && PYTHONPATH=/app python -m alembic upgrade head"
   },
   "deploy": {
     "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT",
