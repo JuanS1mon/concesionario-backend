@@ -8,7 +8,8 @@ from app.crud.modelo import (
     get_modelo,
     create_modelo,
     update_modelo,
-    delete_modelo
+    delete_modelo,
+    get_modelos_by_marca
 )
 from app.api.deps import get_current_admin
 
@@ -17,6 +18,11 @@ router = APIRouter(prefix="/modelos", tags=["modelos"])
 @router.get("/", response_model=List[Modelo])
 def read_modelos(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     modelos = get_modelos(db, skip=skip, limit=limit)
+    return modelos
+
+@router.get("/marca/{marca_id}", response_model=List[Modelo])
+def read_modelos_by_marca(marca_id: int, db: Session = Depends(get_db)):
+    modelos = get_modelos_by_marca(db, marca_id=marca_id)
     return modelos
 
 @router.get("/{modelo_id}", response_model=Modelo)
