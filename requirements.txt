@@ -4,7 +4,7 @@ sqlalchemy
 alembic
 python-dotenv
 psycopg2-binary
-python-jose[cryptography]
+PyJWT[crypto]
 passlib[bcrypt]
 pydantic
 cloudinary
