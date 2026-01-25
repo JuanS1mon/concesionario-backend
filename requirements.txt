@@ -8,3 +8,4 @@ PyJWT[crypto]
 passlib[bcrypt]
 pydantic
 cloudinary
+python-multipart
