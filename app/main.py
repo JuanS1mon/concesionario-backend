@@ -20,8 +20,8 @@ app = FastAPI()
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=["https://concesionario-frontend-production.up.railway.app"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
