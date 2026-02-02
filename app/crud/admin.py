@@ -3,7 +3,7 @@ from app.models.admin import Admin
 from app.schemas.admin import AdminCreate, AdminUpdate
 from passlib.context import CryptContext
 
-pwd_context = CryptContext(schemes=["plaintext"])
+pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
 
 def get_admin(db: Session, admin_id: int):
     return db.query(Admin).filter(Admin.id == admin_id).first()
@@ -52,6 +52,6 @@ def authenticate_admin(db: Session, email: str, password: str):
     admin = db.query(Admin).filter(Admin.email == email).first()
     if not admin:
         return False
-    if password != admin.hashed_password:
+    if not pwd_context.verify(password, admin.hashed_password):
         return False
     return admin

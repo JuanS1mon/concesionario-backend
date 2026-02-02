@@ -1,14 +1,18 @@
 import sys
 import os
+
+# Agregar el directorio padre al path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, engine
 from app.models.admin import Admin
 from passlib.context import CryptContext
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
 
 def get_password_hash(password):
-    return password
+    return pwd_context.hash(password)
 
 def create_admin(email, password, nombre_completo=None):
     db: Session = SessionLocal()

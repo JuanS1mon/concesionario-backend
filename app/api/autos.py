@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.database import get_db
 from app.schemas.auto import Auto, AutoCreate, AutoUpdate
 from app.crud.auto import (
@@ -15,8 +15,33 @@ from app.api.deps import get_current_admin
 router = APIRouter(prefix="/autos", tags=["autos"])
 
 @router.get("/", response_model=List[Auto])
-def read_autos(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    autos = get_autos(db, skip=skip, limit=limit)
+def read_autos(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    marca_id: Optional[int] = Query(None),
+    modelo_id: Optional[int] = Query(None),
+    anio_min: Optional[int] = Query(None),
+    anio_max: Optional[int] = Query(None),
+    tipo: Optional[str] = Query(None),
+    precio_min: Optional[float] = Query(None),
+    precio_max: Optional[float] = Query(None),
+    en_stock: Optional[bool] = Query(None),
+    db: Session = Depends(get_db)
+):
+    # Usar anio_min y anio_max en lugar de anio
+    autos = get_autos(
+        db,
+        skip=skip,
+        limit=limit,
+        marca_id=marca_id,
+        modelo_id=modelo_id,
+        anio_min=anio_min,
+        anio_max=anio_max,
+        tipo=tipo,
+        precio_min=precio_min,
+        precio_max=precio_max,
+        en_stock=en_stock
+    )
     return autos
 
 @router.get("/{auto_id}", response_model=Auto)
