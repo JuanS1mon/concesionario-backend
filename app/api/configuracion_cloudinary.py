@@ -12,10 +12,10 @@ from app.api.deps import get_current_admin
 
 router = APIRouter()
 
+# GET público para obtener la configuración de Cloudinary
 @router.get("/configuracion-cloudinary", response_model=ConfiguracionCloudinary)
 def read_configuracion_cloudinary(
-    db: Session = Depends(get_db),
-    current_admin = Depends(get_current_admin)
+    db: Session = Depends(get_db)
 ):
     configuracion = get_configuracion_cloudinary(db)
     if not configuracion:

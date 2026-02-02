@@ -25,6 +25,9 @@ def update_modelo(db: Session, modelo_id: int, modelo: ModeloUpdate):
         db.refresh(db_modelo)
     return db_modelo
 
+def get_modelos_by_marca(db: Session, marca_id: int):
+    return db.query(Modelo).filter(Modelo.marca_id == marca_id).all()
+
 def delete_modelo(db: Session, modelo_id: int):
     db_modelo = db.query(Modelo).filter(Modelo.id == modelo_id).first()
     if db_modelo:
