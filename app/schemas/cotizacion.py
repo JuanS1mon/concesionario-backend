@@ -9,6 +9,9 @@ class CotizacionBase(BaseModel):
     auto_id: int
     mensaje: str
     estado: Optional[str] = "nuevo"
+    ciudad: Optional[str] = None
+    fuente: Optional[str] = None
+    preferencias_contacto: Optional[str] = None
 
 class CotizacionCreate(CotizacionBase):
     pass
@@ -16,5 +19,7 @@ class CotizacionCreate(CotizacionBase):
 class CotizacionOut(CotizacionBase):
     id: int
     fecha_creacion: datetime
+    score: int
+    estado_oportunidad: str
     class Config:
         from_attributes = True
