@@ -12,7 +12,10 @@ from app.api import (
     cotizaciones,
     configuracion_cloudinary,
     imagenes,
-    auth
+    auth,
+    clientes,
+    oportunidades,
+    ventas
 )
 
 app = FastAPI()
@@ -40,6 +43,9 @@ app.include_router(estados.router)
 app.include_router(cotizaciones.router)
 app.include_router(configuracion_cloudinary.router)
 app.include_router(imagenes.router)
+app.include_router(clientes.router)
+app.include_router(oportunidades.router)
+app.include_router(ventas.router)
 
 @app.get("/")
 def root():

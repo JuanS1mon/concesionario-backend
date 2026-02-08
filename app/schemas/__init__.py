@@ -7,3 +7,4 @@ from .cotizacion import *
 from .presupuesto import *
 from .solicitud_venta import *
 from .admin import *
+from .venta import *
