@@ -18,4 +18,7 @@ class Cotizacion(Base):
     preferencias_contacto = Column(String, nullable=True)
     score = Column(Integer, default=0)
     estado_oportunidad = Column(String, default="Nuevo")
+    ip = Column(String, nullable=True)
+    ubicacion = Column(String, nullable=True)
+    notas_admin = Column(String, nullable=True)
     auto = relationship("Auto")

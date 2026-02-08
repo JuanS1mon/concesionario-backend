@@ -1,5 +1,8 @@
 from pydantic import BaseModel
 from typing import Optional, List
+from app.schemas.marca import Marca
+from app.schemas.modelo import Modelo
+from app.schemas.estado import Estado
 
 class ImagenOut(BaseModel):
     id: int
@@ -33,5 +36,8 @@ class AutoUpdate(BaseModel):
 class Auto(AutoBase):
     id: int
     imagenes: List[ImagenOut] = []
+    marca: Optional[Marca] = None
+    modelo: Optional[Modelo] = None
+    estado: Optional[Estado] = None
     class Config:
         from_attributes = True

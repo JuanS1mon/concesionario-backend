@@ -1,5 +1,6 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from app.models.cotizacion import Cotizacion
+from app.models.auto import Auto
 from app.schemas.cotizacion import CotizacionCreate
 from datetime import datetime
 
@@ -23,4 +24,9 @@ def crear_cotizacion(db: Session, cotizacion: CotizacionCreate):
     return db_cot
 
 def listar_cotizaciones(db: Session):
-    return db.query(Cotizacion).all()
+    return db.query(Cotizacion).options(
+        selectinload(Cotizacion.auto).selectinload(Auto.marca),
+        selectinload(Cotizacion.auto).selectinload(Auto.modelo),
+        selectinload(Cotizacion.auto).selectinload(Auto.estado),
+        selectinload(Cotizacion.auto).selectinload(Auto.imagenes)
+    ).all()
