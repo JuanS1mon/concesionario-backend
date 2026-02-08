@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.schemas.auto import Auto, AutoCreate, AutoUpdate
+from app.schemas.auto import Auto, AutoCreate, AutoUpdate, AutoList
 from app.crud.auto import (
     get_autos,
+    get_autos_count,
     get_auto,
     create_auto,
     update_auto,
@@ -43,6 +44,51 @@ def read_autos(
         en_stock=en_stock
     )
     return autos
+
+@router.get("/paginated", response_model=AutoList)
+def read_autos_paginated(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(12, ge=1, le=1000),
+    marca_id: Optional[int] = Query(None),
+    modelo_id: Optional[int] = Query(None),
+    anio_min: Optional[int] = Query(None),
+    anio_max: Optional[int] = Query(None),
+    tipo: Optional[str] = Query(None),
+    precio_min: Optional[float] = Query(None),
+    precio_max: Optional[float] = Query(None),
+    en_stock: Optional[bool] = Query(None),
+    db: Session = Depends(get_db)
+):
+    autos = get_autos(
+        db,
+        skip=skip,
+        limit=limit,
+        marca_id=marca_id,
+        modelo_id=modelo_id,
+        anio_min=anio_min,
+        anio_max=anio_max,
+        tipo=tipo,
+        precio_min=precio_min,
+        precio_max=precio_max,
+        en_stock=en_stock
+    )
+    total = get_autos_count(
+        db,
+        marca_id=marca_id,
+        modelo_id=modelo_id,
+        anio_min=anio_min,
+        anio_max=anio_max,
+        tipo=tipo,
+        precio_min=precio_min,
+        precio_max=precio_max,
+        en_stock=en_stock
+    )
+    return {
+        "items": autos,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
 
 @router.get("/{auto_id}", response_model=Auto)
 def read_auto(auto_id: int, db: Session = Depends(get_db)):

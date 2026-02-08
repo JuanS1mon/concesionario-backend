@@ -41,3 +41,9 @@ class Auto(AutoBase):
     estado: Optional[Estado] = None
     class Config:
         from_attributes = True
+
+class AutoList(BaseModel):
+    items: List[Auto]
+    total: int
+    skip: int
+    limit: int
