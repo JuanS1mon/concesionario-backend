@@ -11,3 +11,4 @@ from .configuracion_cloudinary import *
 from .cliente import *
 from .oportunidad import *
 from .venta import *
+from .pricing import *

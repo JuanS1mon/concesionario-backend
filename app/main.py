@@ -15,7 +15,8 @@ from app.api import (
     auth,
     clientes,
     oportunidades,
-    ventas
+    ventas,
+    pricing
 )
 
 app = FastAPI()
@@ -46,6 +47,7 @@ app.include_router(imagenes.router)
 app.include_router(clientes.router)
 app.include_router(oportunidades.router)
 app.include_router(ventas.router)
+app.include_router(pricing.router)
 
 @app.get("/")
 def root():
