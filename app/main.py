@@ -27,6 +27,7 @@ app.add_middleware(
     allow_origins=[
         "https://concesionario-frontend-production.up.railway.app",
         "http://concesionario-frontend-production.up.railway.app",
+        "https://www.concesionarios.cloud",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://192.168.1.2:3000"
