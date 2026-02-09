@@ -16,6 +16,8 @@ class AutoBase(BaseModel):
     anio: int
     tipo: str
     precio: float
+    precio_compra: Optional[float] = None
+    es_trade_in: Optional[bool] = False
     descripcion: Optional[str] = None
     en_stock: Optional[bool] = True
     estado_id: int
@@ -29,6 +31,8 @@ class AutoUpdate(BaseModel):
     anio: Optional[int] = None
     tipo: Optional[str] = None
     precio: Optional[float] = None
+    precio_compra: Optional[float] = None
+    es_trade_in: Optional[bool] = None
     descripcion: Optional[str] = None
     en_stock: Optional[bool] = None
     estado_id: Optional[int] = None

@@ -108,3 +108,14 @@ class NormalizacionResult(BaseModel):
     sin_match: int = 0
     outliers_filtrados: int = 0
     mensaje: str = ""
+
+
+class ActualizarPrecioRequest(BaseModel):
+    precio: float
+
+
+class ActualizarPrecioResponse(BaseModel):
+    auto_id: int
+    precio_anterior: float
+    precio_nuevo: float
+    mensaje: str = "Precio actualizado correctamente"

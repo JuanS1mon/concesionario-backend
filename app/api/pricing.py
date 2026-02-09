@@ -17,6 +17,8 @@ from app.schemas.pricing import (
     NormalizacionResult,
     MarketListingOut,
     MarketRawListingOut,
+    ActualizarPrecioRequest,
+    ActualizarPrecioResponse,
 )
 from app.crud.pricing import listar_market_listings, listar_raw_listings, contar_listings
 from app.services.pricing_engine import (
@@ -191,3 +193,29 @@ def ejecutar_normalizacion(
     """Normaliza los datos crudos del scraping."""
     stats = normalizar_listings(db)
     return NormalizacionResult(**stats)
+
+
+@router.patch("/actualizar-precio/{auto_id}", response_model=ActualizarPrecioResponse)
+def actualizar_precio_auto(
+    auto_id: int,
+    request: ActualizarPrecioRequest,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    """Actualiza el precio de un auto desde el módulo de pricing."""
+    from app.models.auto import Auto
+
+    auto = db.query(Auto).filter(Auto.id == auto_id).first()
+    if not auto:
+        raise HTTPException(status_code=404, detail="Auto no encontrado")
+
+    precio_anterior = auto.precio
+    auto.precio = request.precio
+    db.commit()
+    db.refresh(auto)
+
+    return ActualizarPrecioResponse(
+        auto_id=auto.id,
+        precio_anterior=precio_anterior,
+        precio_nuevo=auto.precio,
+    )

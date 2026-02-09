@@ -129,10 +129,16 @@ def calcular_precio_sugerido(db: Session, auto_id: int) -> PrecioSugerido:
     # Competitividad
     comp = clasificar_competitividad(auto.precio, mediana)
 
-    # Margen (estimación simple: 15% sobre un precio base de compra estimado)
-    precio_compra_estimado = auto.precio * 0.85
-    margen_actual = auto.precio - precio_compra_estimado
-    margen_sugerido = precio_sugerido - precio_compra_estimado if precio_sugerido else None
+    # Cálculo de margen según origen del auto
+    if auto.es_trade_in and auto.precio_compra:
+        # Si fue trade-in, margen = precio_venta - precio_compra_del_cliente
+        margen_actual = auto.precio - auto.precio_compra
+        margen_sugerido = precio_sugerido - auto.precio_compra if precio_sugerido else None
+    else:
+        # Si no fue trade-in, margen = precio_venta - precio_minimo_mercado
+        precio_minimo_mercado = min(precios) if precios else mediana
+        margen_actual = auto.precio - precio_minimo_mercado
+        margen_sugerido = precio_sugerido - precio_minimo_mercado if precio_sugerido else None
 
     # Convertir comparables a schema
     comparables_out = [

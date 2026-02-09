@@ -10,6 +10,8 @@ class Auto(Base):
     anio = Column(Integer)
     tipo = Column(String)
     precio = Column(Float)
+    precio_compra = Column(Float, nullable=True)  # Precio al que se adquirió el auto
+    es_trade_in = Column(Boolean, default=False)  # Si fue recibido como parte de un trade-in
     descripcion = Column(String)
     en_stock = Column(Boolean, default=True)
     estado_id = Column(Integer, ForeignKey("estados.id"))
