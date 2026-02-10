@@ -1,6 +1,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 # Force redeploy
 
@@ -19,7 +20,16 @@ from app.api import (
     pricing
 )
 
-app = FastAPI()
+app = FastAPI(root_path="")
+
+# Middleware para confiar en headers del proxy (Railway)
+@app.middleware("http")
+async def force_https_redirects(request, call_next):
+    # Si el proxy indica HTTPS, forzar el scheme
+    if request.headers.get("x-forwarded-proto") == "https":
+        request.scope["scheme"] = "https"
+    response = await call_next(request)
+    return response
 
 # CORS
 app.add_middleware(
