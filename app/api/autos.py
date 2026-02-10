@@ -57,6 +57,8 @@ def read_autos_paginated(
     precio_min: Optional[float] = Query(None),
     precio_max: Optional[float] = Query(None),
     en_stock: Optional[bool] = Query(None),
+    sort_by: Optional[str] = Query(None),
+    sort_order: Optional[str] = Query("asc"),
     db: Session = Depends(get_db)
 ):
     autos = get_autos(
@@ -70,7 +72,9 @@ def read_autos_paginated(
         tipo=tipo,
         precio_min=precio_min,
         precio_max=precio_max,
-        en_stock=en_stock
+        en_stock=en_stock,
+        sort_by=sort_by,
+        sort_order=sort_order
     )
     total = get_autos_count(
         db,

@@ -12,7 +12,9 @@ def build_autos_query(
     tipo: Optional[str] = None,
     precio_min: Optional[float] = None,
     precio_max: Optional[float] = None,
-    en_stock: Optional[bool] = None
+    en_stock: Optional[bool] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = "asc"
 ):
     query = db.query(Auto)
 
@@ -41,6 +43,18 @@ def build_autos_query(
     if en_stock is not None:
         query = query.filter(Auto.en_stock == en_stock)
 
+    # Aplicar ordenamiento
+    if sort_by == "precio":
+        if sort_order == "desc":
+            query = query.order_by(Auto.precio.desc())
+        else:
+            query = query.order_by(Auto.precio.asc())
+    elif sort_by == "anio":
+        if sort_order == "desc":
+            query = query.order_by(Auto.anio.desc())
+        else:
+            query = query.order_by(Auto.anio.asc())
+
     return query
 
 def get_autos(
@@ -54,7 +68,9 @@ def get_autos(
     tipo: Optional[str] = None,
     precio_min: Optional[float] = None,
     precio_max: Optional[float] = None,
-    en_stock: Optional[bool] = None
+    en_stock: Optional[bool] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = "asc"
 ):
     query = build_autos_query(
         db,
@@ -65,7 +81,9 @@ def get_autos(
         tipo=tipo,
         precio_min=precio_min,
         precio_max=precio_max,
-        en_stock=en_stock
+        en_stock=en_stock,
+        sort_by=sort_by,
+        sort_order=sort_order
     )
     return query.offset(skip).limit(limit).all()
 
