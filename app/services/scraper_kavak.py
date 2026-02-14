@@ -1,12 +1,15 @@
 """
-Integración con Kavak Argentina.
-Intenta usar la API de Kavak; si falla, genera datos de ejemplo.
+Scraper directo de Kavak Argentina.
+Extrae datos de autos del sitio https://www.kavak.com/ar/usados
+parseando el JSON embebido en el HTML (React SSR).
+No requiere credenciales.
 """
 import requests
 import logging
-import random
+import json
+import re
+import time
 from datetime import datetime
-from typing import Optional
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.pricing import MarketRawListing
@@ -15,298 +18,270 @@ from app.models.modelo import Modelo
 
 logger = logging.getLogger(__name__)
 
-KAVAK_API_URL = "https://www.kavak.com/ar/api/inventory/search"
+KAVAK_BASE_URL = "https://www.kavak.com/ar/usados"
 
-# Cache: si la API de Kavak no está disponible
-_kavak_api_available: Optional[bool] = None
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
+    "Connection": "keep-alive",
+}
+
+REQUEST_DELAY = 1.5
 
 
-def scrape_kavak(
+def _build_kavak_url(marca: str = "", modelo: str = "", page: int = 1) -> str:
+    """Construye la URL de búsqueda en Kavak."""
+    url = KAVAK_BASE_URL
+    if marca:
+        slug = marca.lower().replace(" ", "-").replace(".", "")
+        url += f"/{slug}"
+        if modelo:
+            modelo_slug = modelo.lower().replace(" ", "-").replace(".", "")
+            url += f"-{modelo_slug}"
+    if page > 1:
+        sep = "?" if "?" not in url else "&"
+        url += f"{sep}page={page}"
+    return url
+
+
+def _parse_precio_kavak(text: str) -> Optional[float]:
+    """Parsea precio de Kavak: '15.940.000' -> 15940000."""
+    if not text:
+        return None
+    try:
+        clean = text.strip().replace(".", "").replace(",", "").replace("$", "").strip()
+        return float(clean) if clean else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _extract_cars_from_html(html: str) -> list[dict]:
+    """
+    Extrae el array de autos del HTML de Kavak.
+    Kavak usa React SSR y los datos están en un script con formato:
+    \\"cars\\":[{\\"id\\":\\"...\\",...}]
+    """
+    # Buscar el marcador de cars con doble escape
+    marker = '\\"cars\\":['
+    start = html.find(marker)
+    if start < 0:
+        # Intentar sin doble escape (por si cambian el formato)
+        marker = '"cars":['
+        start = html.find(marker)
+        if start < 0:
+            return []
+
+    idx = start + len(marker)
+    bracket_count = 1
+    i = idx
+    while i < len(html) and bracket_count > 0:
+        ch = html[i]
+        if ch == '\\' and i + 1 < len(html):
+            i += 2  # saltar carácter escapado
+            continue
+        if ch == '[':
+            bracket_count += 1
+        elif ch == ']':
+            bracket_count -= 1
+        i += 1
+
+    raw = html[idx:i - 1]
+
+    # Desescapar: \\" -> "  y \\/ -> /
+    raw = raw.replace('\\"', '"').replace('\\/', '/')
+    cars_json = '[' + raw + ']'
+
+    try:
+        return json.loads(cars_json)
+    except json.JSONDecodeError as e:
+        logger.error(f"[Kavak] Error parseando JSON de cars: {e}")
+        return []
+
+
+def _parse_car_data(car: dict) -> dict:
+    """
+    Parsea un objeto de auto de Kavak a nuestro formato.
+    Campos disponibles: id, url, image, title, subtitle, mainPrice,
+    footerInfo, analytics (car_make, car_model, car_price, car_location, car_id)
+    """
+    analytics = car.get("analytics", {})
+
+    # Marca y modelo del analytics o del título
+    marca = analytics.get("car_make", "")
+    modelo = analytics.get("car_model", "")
+
+    if not marca and car.get("title"):
+        # Título formato: "Renault • Sandero"
+        parts = car["title"].split("•")
+        if len(parts) >= 2:
+            marca = parts[0].strip()
+            modelo = parts[1].strip()
+        else:
+            marca = car["title"].strip()
+
+    # Año y KM del subtitle: "2017 • 49.500 km • 1.6 PRIVILEGE • Manual"
+    subtitle = car.get("subtitle", "")
+    anio = None
+    km = None
+    if subtitle:
+        parts = [p.strip() for p in subtitle.split("•")]
+        for p in parts:
+            # Año
+            if re.match(r"^\d{4}$", p):
+                anio = int(p)
+            # Kilómetros
+            elif "km" in p.lower():
+                km_clean = re.sub(r"[^\d]", "", p)
+                if km_clean:
+                    km = int(km_clean)
+
+    # Precio
+    precio_str = car.get("mainPrice", "")
+    precio = _parse_precio_kavak(precio_str)
+    if not precio and analytics.get("car_price"):
+        try:
+            precio = float(analytics["car_price"])
+        except (ValueError, TypeError):
+            pass
+
+    # Ubicación
+    ubicacion = car.get("footerInfo", analytics.get("car_location", ""))
+
+    # URL
+    url = car.get("url", "")
+    if url and not url.startswith("http"):
+        url = f"https://www.kavak.com{url}"
+
+    # Imagen
+    image = car.get("image", "")
+    if image and not image.startswith("http"):
+        image = f"https://images.kavak.services/{image}"
+
+    return {
+        "id": car.get("id", ""),
+        "url": url,
+        "titulo": f"{marca} {modelo} {anio or ''}".strip(),
+        "marca": marca,
+        "modelo": modelo,
+        "anio": anio,
+        "km": km,
+        "precio": precio,
+        "moneda": "ARS",
+        "ubicacion": ubicacion,
+        "imagen_url": image,
+    }
+
+
+def scrape_kavak_web(
     db: Session,
     marca: str = "",
     modelo: str = "",
-    limit: int = 50,
+    limit: int = 30,
     page: int = 1,
 ) -> dict:
     """
-    Intenta obtener listings de Kavak via API.
-    Si falla (403/404), genera datos de ejemplo para desarrollo.
+    Scrape directo del sitio web de Kavak.
+    Extrae datos JSON embebidos en el HTML.
+    Retorna dict con stats: {nuevos, duplicados, errores}.
     """
     stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
 
-    global _kavak_api_available
-    if _kavak_api_available is False:
-        return _generar_datos_ejemplo_kavak(db, marca, modelo)
-
-    params = {
-        "country": "AR",
-        "page": page,
-        "pageSize": min(limit, 50),
-    }
-    if marca:
-        params["makes"] = marca
-    if modelo:
-        params["models"] = modelo
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json",
-    }
+    url = _build_kavak_url(marca, modelo, page)
+    logger.info(f"[Kavak] Scraping: {url}")
 
     try:
-        response = requests.get(KAVAK_API_URL, params=params, headers=headers, timeout=15)
-        if response.status_code in (403, 404, 503):
-            _kavak_api_available = False
-            logger.info("API Kavak no disponible, generando datos de ejemplo.")
-            return _generar_datos_ejemplo_kavak(db, marca, modelo)
-        response.raise_for_status()
-        data = response.json()
-    except requests.RequestException as e:
-        _kavak_api_available = False
-        logger.info(f"API Kavak no accesible ({e}), generando datos de ejemplo.")
-        return _generar_datos_ejemplo_kavak(db, marca, modelo)
-
-    results = data.get("results", data.get("data", data.get("inventory", [])))
-    if not isinstance(results, list):
-        results = []
-
-    if not results:
-        return _generar_datos_ejemplo_kavak(db, marca, modelo)
-
-    for item in results:
-        try:
-            item_id = item.get("id", item.get("externalId", ""))
-            url = f"https://www.kavak.com/ar/comprar/{item_id}" if item_id else None
-
-            if url:
-                existe = db.query(MarketRawListing).filter(MarketRawListing.url == url).first()
-                if existe:
-                    stats["duplicados"] += 1
-                    continue
-
-            marca_raw = item.get("make", item.get("brand", ""))
-            modelo_raw = item.get("model", "")
-            anio = item.get("year")
-            km = item.get("km", item.get("mileage"))
-            precio = item.get("price", item.get("listPrice"))
-            imagen = item.get("mainImage", item.get("image", ""))
-
-            if isinstance(km, str):
-                km = int(km.replace(".", "").replace(",", "").strip()) if km else None
-            if isinstance(anio, str):
-                anio = int(anio) if anio else None
-
-            raw = MarketRawListing(
-                fuente="kavak",
-                url=url,
-                titulo=item.get("title", f"{marca_raw} {modelo_raw} {anio}"),
-                marca_raw=marca_raw,
-                modelo_raw=modelo_raw,
-                anio=anio,
-                km=km,
-                precio=float(precio) if precio else None,
-                moneda="ARS",
-                ubicacion=item.get("city", item.get("location", "")),
-                imagen_url=imagen,
-                activo=True,
-                procesado=False,
-                fecha_scraping=datetime.utcnow(),
-            )
-            db.add(raw)
-            stats["nuevos"] += 1
-        except Exception as e:
-            logger.error(f"Error procesando item Kavak: {e}")
+        response = requests.get(url, headers=HEADERS, timeout=20, allow_redirects=True)
+        if response.status_code != 200:
+            logger.warning(f"[Kavak] Status {response.status_code} para {url}")
             stats["errores"] += 1
+            return stats
+    except requests.RequestException as e:
+        logger.error(f"[Kavak] Error de conexión: {e}")
+        stats["errores"] += 1
+        return stats
 
-    db.commit()
-    return stats
+    cars = _extract_cars_from_html(response.text)
+    if not cars:
+        logger.info(f"[Kavak] 0 resultados para '{marca} {modelo}'")
+        return stats
 
+    logger.info(f"[Kavak] {len(cars)} resultados para '{marca} {modelo}'")
 
-def _generar_datos_ejemplo_kavak(db: Session, marca: str = "", modelo: str = "") -> dict:
-    """
-    Genera datos de ejemplo de Kavak con precios ligeramente distintos
-    a los de MercadoLibre (Kavak suele ser ~5-10% más caro por garantía).
-    Optimizado: batch insert + URLs en memoria.
-    """
-    stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
-
-    # Precios Kavak alineados con marcas/modelos de la DB (~7% más que ML por garantía)
-    PRECIOS_KAVAK: dict[str, dict[str, dict[int, int]]] = {
-        "Toyota": {
-            "Corolla": {2020: 30000000, 2021: 34000000, 2022: 38500000, 2023: 45000000, 2024: 51000000},
-            "Camry": {2020: 37500000, 2021: 43000000, 2022: 49000000, 2023: 57000000, 2024: 64000000},
-            "RAV4": {2020: 45000000, 2021: 51000000, 2022: 59000000, 2023: 67000000, 2024: 77000000},
-            "Highlander": {2020: 53500000, 2021: 61000000, 2022: 70000000, 2023: 79000000, 2024: 90000000},
-            "Prius": {2020: 34000000, 2021: 40000000, 2022: 45000000, 2023: 51000000, 2024: 59000000},
-        },
-        "Honda": {
-            "Civic": {2020: 28000000, 2021: 32000000, 2022: 36000000, 2023: 43000000, 2024: 49000000},
-            "Accord": {2020: 35000000, 2021: 41000000, 2022: 46000000, 2023: 53500000, 2024: 61000000},
-            "CR-V": {2020: 41000000, 2021: 47000000, 2022: 53500000, 2023: 61000000, 2024: 70000000},
-            "Fit": {2020: 19000000, 2021: 22500000, 2022: 26000000, 2023: 30000000, 2024: 34000000},
-            "Pilot": {2020: 51000000, 2021: 59000000, 2022: 66000000, 2023: 76000000, 2024: 86000000},
-        },
-        "Ford": {
-            "Focus": {2020: 19500000, 2021: 22500000, 2022: 26000000, 2023: 30000000, 2024: 34000000},
-            "Mustang": {2020: 59000000, 2021: 67000000, 2022: 77000000, 2023: 88000000, 2024: 99000000},
-            "Explorer": {2020: 51000000, 2021: 59000000, 2022: 67000000, 2023: 77000000, 2024: 88000000},
-            "Escape": {2020: 32000000, 2021: 37500000, 2022: 43000000, 2023: 49000000, 2024: 56000000},
-            "F-150": {2020: 56000000, 2021: 64000000, 2022: 73000000, 2023: 83000000, 2024: 94000000},
-        },
-        "Chevrolet": {
-            "Cruze": {2020: 21500000, 2021: 25000000, 2022: 29000000, 2023: 33000000, 2024: 38000000},
-            "Malibu": {2020: 27000000, 2021: 31000000, 2022: 35000000, 2023: 41000000, 2024: 47000000},
-            "Equinox": {2020: 32000000, 2021: 37500000, 2022: 43000000, 2023: 49000000, 2024: 56000000},
-            "Traverse": {2020: 45000000, 2021: 51000000, 2022: 59000000, 2023: 67000000, 2024: 77000000},
-            "Colorado": {2020: 38500000, 2021: 45000000, 2022: 51000000, 2023: 59000000, 2024: 66000000},
-        },
-        "Nissan": {
-            "Sentra": {2020: 19500000, 2021: 22500000, 2022: 26000000, 2023: 30000000, 2024: 34000000},
-            "Altima": {2020: 26000000, 2021: 30000000, 2022: 34000000, 2023: 40000000, 2024: 45000000},
-            "Rogue": {2020: 34000000, 2021: 40000000, 2022: 45000000, 2023: 51000000, 2024: 59000000},
-            "Murano": {2020: 41000000, 2021: 47000000, 2022: 53500000, 2023: 61000000, 2024: 70000000},
-        },
-        "BMW": {
-            "Serie 3": {2020: 48000000, 2021: 56000000, 2022: 63000000, 2023: 73000000, 2024: 82000000},
-            "Serie 5": {2020: 59000000, 2021: 67000000, 2022: 77000000, 2023: 88000000, 2024: 99000000},
-            "X3": {2020: 53500000, 2021: 61000000, 2022: 70000000, 2023: 79000000, 2024: 90000000},
-            "X5": {2020: 70000000, 2021: 79000000, 2022: 91000000, 2023: 104000000, 2024: 118000000},
-        },
-        "Mercedes-Benz": {
-            "C-Class": {2020: 51000000, 2021: 59000000, 2022: 67000000, 2023: 77000000, 2024: 88000000},
-            "E-Class": {2020: 64000000, 2021: 74000000, 2022: 85000000, 2023: 96000000, 2024: 109000000},
-            "GLC": {2020: 59000000, 2021: 67000000, 2022: 77000000, 2023: 88000000, 2024: 99000000},
-            "GLE": {2020: 75000000, 2021: 86000000, 2022: 97000000, 2023: 111000000, 2024: 126000000},
-        },
-        "Volkswagen": {
-            "Golf": {2020: 26000000, 2021: 30000000, 2022: 34000000, 2023: 39500000, 2024: 46000000},
-            "Jetta": {2020: 21500000, 2021: 25000000, 2022: 29000000, 2023: 33000000, 2024: 38000000},
-            "Tiguan": {2020: 34000000, 2021: 40000000, 2022: 45000000, 2023: 51000000, 2024: 59000000},
-            "Passat": {2020: 30000000, 2021: 34000000, 2022: 40000000, 2023: 45000000, 2024: 51000000},
-        },
-        "Hyundai": {
-            "Elantra": {2020: 19500000, 2021: 22500000, 2022: 26000000, 2023: 30000000, 2024: 34000000},
-            "Tucson": {2020: 32000000, 2021: 37500000, 2022: 43000000, 2023: 49000000, 2024: 56000000},
-            "Santa Fe": {2020: 43000000, 2021: 49000000, 2022: 56000000, 2023: 64000000, 2024: 73000000},
-            "Sonata": {2020: 27000000, 2021: 31000000, 2022: 35000000, 2023: 41000000, 2024: 47000000},
-        },
-        "Kia": {
-            "Forte": {2020: 18000000, 2021: 21500000, 2022: 25000000, 2023: 29000000, 2024: 33000000},
-            "Sportage": {2020: 30000000, 2021: 34000000, 2022: 40000000, 2023: 45000000, 2024: 51000000},
-            "Sorento": {2020: 41000000, 2021: 47000000, 2022: 53500000, 2023: 61000000, 2024: 70000000},
-            "Optima": {2020: 25000000, 2021: 29000000, 2022: 33000000, 2023: 38500000, 2024: 44000000},
-        },
-    }
-
-    ciudades = ["CABA", "Buenos Aires", "Córdoba", "Rosario", "Mendoza"]
-
-    # Cargar URLs existentes en memoria (1 sola query)
+    # Cargar URLs existentes
     existing_urls = set(
-        url for (url,) in db.query(MarketRawListing.url).filter(
+        u for (u,) in db.query(MarketRawListing.url).filter(
             MarketRawListing.fuente == "kavak"
         ).all()
     )
 
-    marcas_buscar = {marca: PRECIOS_KAVAK[marca]} if marca and marca in PRECIOS_KAVAK else PRECIOS_KAVAK
-
     nuevos = []
-    for marca_nombre, modelos_data in marcas_buscar.items():
-        modelos_buscar = (
-            {modelo: modelos_data[modelo]} if modelo and modelo in modelos_data else modelos_data
-        )
-        for modelo_nombre, anios_precios in modelos_buscar.items():
-            for anio, precio_base in anios_precios.items():
-                n_listings = 2
-                for i in range(n_listings):
-                    variacion = random.uniform(-0.08, 0.08)
-                    precio = int(precio_base * (1 + variacion))
-                    km = random.randint(10000, 80000)
-                    url = f"https://ejemplo-kavak.com/ar/{marca_nombre.lower()}-{modelo_nombre.lower()}-{anio}-{random.randint(100000, 999999)}"
+    for car_raw in cars[:limit]:
+        try:
+            car = _parse_car_data(car_raw)
 
-                    if url in existing_urls:
-                        stats["duplicados"] += 1
-                        continue
+            if not car["url"] or car["url"] in existing_urls:
+                stats["duplicados"] += 1
+                continue
 
-                    nuevos.append(MarketRawListing(
-                        fuente="kavak",
-                        url=url,
-                        titulo=f"{marca_nombre} {modelo_nombre} {anio} | Kavak",
-                        marca_raw=marca_nombre,
-                        modelo_raw=modelo_nombre,
-                        anio=anio,
-                        km=km,
-                        precio=precio,
-                        moneda="ARS",
-                        ubicacion=random.choice(ciudades),
-                        imagen_url="",
-                        activo=True,
-                        procesado=False,
-                        fecha_scraping=datetime.utcnow(),
-                    ))
-                    existing_urls.add(url)
-                    stats["nuevos"] += 1
+            nuevos.append(MarketRawListing(
+                fuente="kavak",
+                url=car["url"],
+                titulo=car["titulo"],
+                marca_raw=car["marca"],
+                modelo_raw=car["modelo"],
+                anio=car["anio"],
+                km=car["km"],
+                precio=car["precio"],
+                moneda=car["moneda"],
+                ubicacion=car["ubicacion"],
+                imagen_url=car["imagen_url"],
+                activo=True,
+                procesado=False,
+                fecha_scraping=datetime.utcnow(),
+            ))
+            existing_urls.add(car["url"])
+            stats["nuevos"] += 1
 
-    db.add_all(nuevos)
-    db.commit()
-    logger.info(f"Datos de ejemplo Kavak generados: {stats}")
+        except Exception as e:
+            logger.error(f"[Kavak] Error procesando auto: {e}")
+            stats["errores"] += 1
+
+    if nuevos:
+        db.add_all(nuevos)
+        db.commit()
+        logger.info(f"[Kavak] Guardados {len(nuevos)} nuevos listings")
+
     return stats
 
 
-def scrape_all_kavak(db: Session, max_por_marca: int = 50) -> dict:
+def scrape_all_kavak(db: Session, max_por_marca: int = 30) -> dict:
     """
-    Scrape automático de Kavak: intenta la API una vez.
-    Si falla, genera datos de ejemplo de una sola vez (rápido).
+    Scrape automático de Kavak: primero obtiene el catálogo general,
+    luego busca por marcas específicas del concesionario.
     """
-    global _kavak_api_available
+    total_stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
 
-    # Verificar disponibilidad de la API con una sola petición
-    if _kavak_api_available is not False:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
-        }
-        try:
-            response = requests.get(
-                KAVAK_API_URL,
-                params={"country": "AR", "page": 1, "pageSize": 1},
-                headers=headers,
-                timeout=10,
-            )
-            if response.status_code in (403, 404, 503):
-                _kavak_api_available = False
-                logger.info(f"API Kavak no disponible (status {response.status_code}). Usando datos de referencia.")
-            elif response.status_code == 200:
-                _kavak_api_available = True
-        except requests.RequestException as e:
-            _kavak_api_available = False
-            logger.info(f"API Kavak no accesible ({e}). Usando datos de referencia.")
+    # 1. Primero scrapear la página general (tiene ~30 autos)
+    stats = scrape_kavak_web(db, limit=30)
+    for k in total_stats:
+        total_stats[k] += stats[k]
+    time.sleep(REQUEST_DELAY)
 
-    if _kavak_api_available:
-        # Ruta con API real
-        total_stats = {"nuevos": 0, "duplicados": 0, "errores": 0}
-        marcas = db.query(Marca).all()
-        modelos = db.query(Modelo).all()
-        modelos_por_marca = {}
-        for m in modelos:
-            modelos_por_marca.setdefault(m.marca_id, []).append(m)
-
-        for marca in marcas:
-            marca_modelos = modelos_por_marca.get(marca.id, [])
-            if not marca_modelos:
-                stats = scrape_kavak(db, marca=marca.nombre, limit=max_por_marca)
-                for k in total_stats:
-                    total_stats[k] += stats[k]
-            else:
-                for modelo in marca_modelos:
-                    stats = scrape_kavak(
-                        db, marca=marca.nombre, modelo=modelo.nombre, limit=max_por_marca
-                    )
-                    for k in total_stats:
-                        total_stats[k] += stats[k]
-        logger.info(f"Scraping Kavak (API) completado: {total_stats}")
+    # 2. Luego buscar por marcas del concesionario
+    marcas = db.query(Marca).all()
+    if not marcas:
+        logger.warning("[Kavak] No hay marcas registradas para scrapear")
         return total_stats
-    else:
-        # Ruta rápida: generar todos los datos de ejemplo de una vez
-        stats = _generar_datos_ejemplo_kavak(db)
-        logger.info(f"Scraping Kavak (ejemplo) completado: {stats}")
-        return stats
+
+    for marca in marcas:
+        stats = scrape_kavak_web(db, marca=marca.nombre, limit=max_por_marca)
+        for k in total_stats:
+            total_stats[k] += stats[k]
+        time.sleep(REQUEST_DELAY)
+
+    logger.info(f"[Kavak] Scraping total completado: {total_stats}")
+    return total_stats

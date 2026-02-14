@@ -8,6 +8,7 @@ from .presupuesto import *
 from .solicitud_venta import *
 from .admin import *
 from .configuracion_cloudinary import *
+from .configuracion_ai import *
 from .cliente import *
 from .oportunidad import *
 from .venta import *

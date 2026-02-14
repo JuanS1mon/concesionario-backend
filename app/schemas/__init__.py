@@ -9,3 +9,4 @@ from .solicitud_venta import *
 from .admin import *
 from .venta import *
 from .pricing import *
+from .configuracion_ai import *

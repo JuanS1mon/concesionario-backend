@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.database import SessionLocal
 from app.services.scraper_mercadolibre import scrape_all_mercadolibre
 from app.services.scraper_kavak import scrape_all_kavak
+from app.services.scraper_deruedas import scrape_all_deruedas
+from app.services.scraper_preciosdeautos import scrape_all_preciosdeautos
 from app.services.normalizer import normalizar_listings
 
 logging.basicConfig(
@@ -32,7 +34,7 @@ def main():
     parser = argparse.ArgumentParser(description="Scraper de datos de mercado")
     parser.add_argument(
         "--fuente",
-        choices=["mercadolibre", "kavak", "all"],
+        choices=["mercadolibre", "kavak", "deruedas", "preciosdeautos", "all"],
         default="all",
         help="Fuente a scrapear (default: all)",
     )
@@ -64,6 +66,20 @@ def main():
             logger.info("Iniciando scraping de Kavak...")
             stats = scrape_all_kavak(db, max_por_marca=args.max_por_marca)
             logger.info(f"Kavak: {stats}")
+            for k in total:
+                total[k] += stats[k]
+
+        if args.fuente in ("deruedas", "all"):
+            logger.info("Iniciando scraping de deRuedas...")
+            stats = scrape_all_deruedas(db, max_por_marca=args.max_por_marca)
+            logger.info(f"deRuedas: {stats}")
+            for k in total:
+                total[k] += stats[k]
+
+        if args.fuente in ("preciosdeautos", "all"):
+            logger.info("Iniciando scraping de PreciosDeAutos...")
+            stats = scrape_all_preciosdeautos(db, max_por_marca=args.max_por_marca)
+            logger.info(f"PreciosDeAutos: {stats}")
             for k in total:
                 total[k] += stats[k]
 

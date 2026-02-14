@@ -18,6 +18,10 @@ AJUSTE_POR_10K_KM = 50000  # ARS por cada 10k km extra (configurable)
 KM_PROMEDIO_REFERENCIA = 50000  # km promedio de referencia
 
 
+# Rangos progresivos de año para buscar comparables
+RANGOS_ANIO_PROGRESIVOS = [1, 2, 3, 5, 8, 15]
+
+
 def obtener_comparables(
     db: Session,
     marca_id: int,
@@ -27,20 +31,84 @@ def obtener_comparables(
     rango_km_pct: float = 0.3,
     km: Optional[int] = None,
     limit: int = 100,
+    moneda: str = "ARS",
 ) -> list[MarketListing]:
     """
     Busca listings comparables en la base de datos de mercado.
-    Filtra por marca, modelo, año ± rango, y opcionalmente km ± %.
+    Filtra por marca, modelo, año ± rango, moneda, y opcionalmente km ± %.
+    Si no encuentra resultados con rango pequeño, expande progresivamente.
     """
+    def _query_comparables(rango: int) -> list[MarketListing]:
+        query = db.query(MarketListing).filter(
+            MarketListing.marca_id == marca_id,
+            MarketListing.modelo_id == modelo_id,
+            MarketListing.anio >= anio - rango,
+            MarketListing.anio <= anio + rango,
+            MarketListing.anio > 0,  # Excluir año=0 (datos inválidos)
+            MarketListing.activo == True,
+            MarketListing.precio > 0,
+            MarketListing.moneda == moneda,
+        )
+        if km and rango_km_pct > 0:
+            km_min = int(km * (1 - rango_km_pct))
+            km_max = int(km * (1 + rango_km_pct))
+            query = query.filter(
+                MarketListing.km >= km_min,
+                MarketListing.km <= km_max,
+            )
+        return query.limit(limit).all()
+
+    # Intentar con rango progresivo hasta encontrar resultados
+    for rango in RANGOS_ANIO_PROGRESIVOS:
+        if rango < rango_anio:
+            continue
+        resultados = _query_comparables(rango)
+        if resultados:
+            if rango > rango_anio:
+                logger.info(
+                    f"[Pricing] Expandido rango año a ±{rango} para "
+                    f"marca={marca_id} modelo={modelo_id} año={anio} → {len(resultados)} comparables"
+                )
+            return resultados
+
+    # Si ARS no dio resultados, intentar con USD
+    if moneda == "ARS":
+        logger.info(f"[Pricing] Sin resultados en ARS, intentando USD")
+        for rango in RANGOS_ANIO_PROGRESIVOS:
+            resultados = _query_comparables_moneda(db, marca_id, modelo_id, anio, rango, km, rango_km_pct, "USD", limit)
+            if resultados:
+                return resultados
+
+    # Último recurso: sin filtro de moneda ni año estricto
     query = db.query(MarketListing).filter(
         MarketListing.marca_id == marca_id,
         MarketListing.modelo_id == modelo_id,
-        MarketListing.anio >= anio - rango_anio,
-        MarketListing.anio <= anio + rango_anio,
+        MarketListing.anio > 0,
         MarketListing.activo == True,
         MarketListing.precio > 0,
-    )
+    ).order_by(
+        func.abs(MarketListing.anio - anio)
+    ).limit(limit)
 
+    return query.all()
+
+
+def _query_comparables_moneda(
+    db: Session, marca_id: int, modelo_id: int, anio: int,
+    rango: int, km: Optional[int], rango_km_pct: float,
+    moneda: str, limit: int,
+) -> list[MarketListing]:
+    """Helper para buscar comparables con moneda específica."""
+    query = db.query(MarketListing).filter(
+        MarketListing.marca_id == marca_id,
+        MarketListing.modelo_id == modelo_id,
+        MarketListing.anio >= anio - rango,
+        MarketListing.anio <= anio + rango,
+        MarketListing.anio > 0,
+        MarketListing.activo == True,
+        MarketListing.precio > 0,
+        MarketListing.moneda == moneda,
+    )
     if km and rango_km_pct > 0:
         km_min = int(km * (1 - rango_km_pct))
         km_max = int(km * (1 + rango_km_pct))
@@ -48,7 +116,6 @@ def obtener_comparables(
             MarketListing.km >= km_min,
             MarketListing.km <= km_max,
         )
-
     return query.limit(limit).all()
 
 
@@ -99,15 +166,21 @@ def calcular_precio_sugerido(db: Session, auto_id: int) -> PrecioSugerido:
         precio_actual=auto.precio,
     )
 
-    # Buscar comparables
+    # Buscar comparables (intenta ARS primero, con rango progresivo)
     comparables = obtener_comparables(
-        db, auto.marca_id, auto.modelo_id, auto.anio
+        db, auto.marca_id, auto.modelo_id, auto.anio, moneda="ARS"
     )
 
     if not comparables:
         resultado.comparables_count = 0
         resultado.competitividad = "sin_datos"
         return resultado
+
+    # Determinar moneda dominante de los comparables
+    moneda_comparables = "ARS"
+    monedas = [c.moneda for c in comparables]
+    if monedas.count("USD") > monedas.count("ARS"):
+        moneda_comparables = "USD"
 
     precios = [c.precio for c in comparables if c.precio > 0]
     if not precios:

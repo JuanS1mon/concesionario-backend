@@ -1,9 +1,11 @@
 """
 API endpoints para el módulo de Pricing Inteligente.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
+from io import BytesIO
 
 from app.database import get_db
 from app.api.deps import get_current_admin
@@ -19,6 +21,7 @@ from app.schemas.pricing import (
     MarketRawListingOut,
     ActualizarPrecioRequest,
     ActualizarPrecioResponse,
+    ExcelImportResult,
 )
 from app.crud.pricing import listar_market_listings, listar_raw_listings, contar_listings
 from app.services.pricing_engine import (
@@ -30,7 +33,12 @@ from app.services.pricing_engine import (
 from app.services.simulador import simular_venta, simular_rango
 from app.services.scraper_mercadolibre import scrape_all_mercadolibre
 from app.services.scraper_kavak import scrape_all_kavak
+from app.services.scraper_deruedas import scrape_all_deruedas
+from app.services.scraper_preciosdeautos import scrape_all_preciosdeautos
+from app.services.scraper_ai import scrape_all_ai
+from app.services.ai_client import get_deepseek_api_key
 from app.services.normalizer import normalizar_listings
+from app.services.excel_importer import importar_excel
 
 router = APIRouter(prefix="/pricing", tags=["pricing"])
 
@@ -160,7 +168,7 @@ def listar_raw(
 
 @router.post("/scrape", response_model=ScrapingResult)
 def ejecutar_scraping(
-    fuente: str = Query("all", pattern="^(mercadolibre|kavak|all)$"),
+    fuente: str = Query("all", pattern="^(mercadolibre|kavak|deruedas|preciosdeautos|ai|all)$"),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
@@ -176,6 +184,24 @@ def ejecutar_scraping(
         stats_kv = scrape_all_kavak(db)
         for k in total:
             total[k] += stats_kv[k]
+
+    if fuente in ("deruedas", "all"):
+        stats_dr = scrape_all_deruedas(db)
+        for k in total:
+            total[k] += stats_dr[k]
+
+    if fuente in ("preciosdeautos", "all"):
+        stats_pda = scrape_all_preciosdeautos(db)
+        for k in total:
+            total[k] += stats_pda[k]
+
+    if fuente in ("ai", "all"):
+        api_key, _source = get_deepseek_api_key(db)
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API key de IA no configurada")
+        stats_ai = scrape_all_ai(db)
+        for k in total:
+            total[k] += stats_ai[k]
 
     return ScrapingResult(
         fuente=fuente,
@@ -218,4 +244,82 @@ def actualizar_precio_auto(
         auto_id=auto.id,
         precio_anterior=precio_anterior,
         precio_nuevo=auto.precio,
+    )
+
+
+# ─── Importación Excel ───────────────────────────────────────────
+
+@router.post("/importar-excel", response_model=ExcelImportResult)
+async def importar_datos_excel(
+    file: UploadFile = File(...),
+    sobrescribir: bool = Query(False, description="Eliminar datos previos de importación Excel"),
+    normalizar: bool = Query(True, description="Ejecutar normalización después de importar"),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    """
+    Importa datos de mercado desde un archivo Excel (.xlsx).
+    Útil cuando las fuentes de scraping no están disponibles.
+    """
+    # Validar extensión
+    if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(
+            status_code=400,
+            detail="El archivo debe ser un Excel (.xlsx o .xls)",
+        )
+
+    # Validar tamaño (máx 10 MB)
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail="El archivo es demasiado grande (máximo 10 MB)",
+        )
+
+    stats = importar_excel(
+        db=db,
+        file_content=content,
+        filename=file.filename,
+        sobrescribir=sobrescribir,
+    )
+
+    # Normalizar si se pidió y hubo importaciones
+    mensaje_norm = ""
+    if normalizar and stats["importados"] > 0:
+        norm_stats = normalizar_listings(db)
+        mensaje_norm = f" | Normalización: {norm_stats['normalizados']} normalizados"
+
+    stats["mensaje"] = (
+        f"Importados {stats['importados']} registros de '{file.filename}'"
+        f" ({stats['duplicados']} duplicados, {stats['errores']} errores)"
+        f"{mensaje_norm}"
+    )
+
+    return ExcelImportResult(**stats)
+
+
+@router.get("/plantilla-excel")
+def descargar_plantilla_excel(
+    admin=Depends(get_current_admin),
+):
+    """
+    Descarga la plantilla Excel de ejemplo para importar datos de mercado.
+    """
+    from generate_sample_excel import create_sample_excel
+    import tempfile
+    import os
+
+    # Generar en directorio temporal
+    tmp_path = os.path.join(tempfile.gettempdir(), "datos_mercado_plantilla.xlsx")
+    create_sample_excel(tmp_path)
+
+    with open(tmp_path, "rb") as f:
+        content = f.read()
+
+    os.unlink(tmp_path)  # Limpiar
+
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=datos_mercado_plantilla.xlsx"},
     )

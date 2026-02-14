@@ -119,3 +119,13 @@ class ActualizarPrecioResponse(BaseModel):
     precio_anterior: float
     precio_nuevo: float
     mensaje: str = "Precio actualizado correctamente"
+
+
+class ExcelImportResult(BaseModel):
+    importados: int = 0
+    duplicados: int = 0
+    errores: int = 0
+    filas_sin_datos: int = 0
+    hojas_procesadas: list = []
+    detalles: list = []
+    mensaje: str = ""

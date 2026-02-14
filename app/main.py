@@ -12,6 +12,7 @@ from app.api import (
     estados,
     cotizaciones,
     configuracion_cloudinary,
+    configuracion_ai,
     imagenes,
     auth,
     clientes,
@@ -54,6 +55,7 @@ app.include_router(modelos.router)
 app.include_router(estados.router)
 app.include_router(cotizaciones.router)
 app.include_router(configuracion_cloudinary.router)
+app.include_router(configuracion_ai.router)
 app.include_router(imagenes.router)
 app.include_router(clientes.router)
 app.include_router(oportunidades.router)

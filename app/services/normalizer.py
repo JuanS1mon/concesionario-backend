@@ -28,6 +28,11 @@ MARCA_ALIASES = {
     "porsche": "Porsche", "ds": "DS",
     "alfa romeo": "Alfa Romeo", "alfaromeo": "Alfa Romeo",
     "mini": "MINI", "lexus": "Lexus", "jaguar": "Jaguar",
+    "ds automobiles": "DS", "dfsk": "DFSK", "geely": "Geely",
+    "haval": "Haval", "jac": "JAC", "byd": "BYD",
+    "gac": "GAC", "changan": "Changan", "great wall": "Great Wall",
+    "rover": "Land Rover", "seat": "SEAT", "smart": "Smart",
+    "ssangyong": "SsangYong", "tata": "Tata",
 }
 
 
@@ -181,17 +186,12 @@ def normalizar_listings(db: Session) -> dict:
 
     # 2. INSERT market_listings en lotes
     if inserts:
-        insert_sql = text(
-            "INSERT INTO market_listings "
-            "(raw_listing_id, fuente, marca_id, modelo_id, anio, km, precio, moneda, "
-            "ubicacion, url, activo, fecha_publicacion, fecha_scraping) "
-            "VALUES (:raw_listing_id, :fuente, :marca_id, :modelo_id, :anio, :km, :precio, "
-            ":moneda, :ubicacion, :url, :activo, :fecha_publicacion, :fecha_scraping)"
-        )
+        from app.models.pricing import MarketListing
         for i in range(0, len(inserts), BATCH):
             batch = inserts[i:i + BATCH]
             for row_data in batch:
-                db.execute(insert_sql, row_data)
+                listing = MarketListing(**row_data)
+                db.add(listing)
             db.commit()
 
     logger.info(f"Normalización completada: {stats}")

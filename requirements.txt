@@ -10,3 +10,5 @@ pydantic
 cloudinary
 python-multipart
 requests
+beautifulsoup4
+openpyxl
