@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Tiempo base promedio de venta en días (si no hay datos históricos)
 DIAS_BASE_VENTA = 45
 # Factor: por cada 1% más caro que el mercado, se agregan X días
-DIAS_POR_PCT_SOBREPRECIO = 2.5
+DIAS_POR_PCT_SOBREPRECIO = 1.0  # Reducido de 2.5 para evitar valores extremos
 # Factor: por cada 1% más barato, se reducen X días
 DIAS_POR_PCT_DESCUENTO = 1.5
 # Mínimo de días estimados
@@ -87,6 +87,8 @@ def _estimar_dias_venta(
         if precio_promedio > 0:
             # Por cada % de diferencia vs promedio histórico, ajustar días
             pct_diff = (precio_propuesto - precio_promedio) / precio_promedio
+            # Limitar pct_diff para evitar valores extremos
+            pct_diff = max(min(pct_diff, 2.0), -2.0)  # Máximo ±200%
             ajuste = pct_diff * dias_promedio * 0.8  # factor de sensibilidad
             dias_estimados = dias_promedio + ajuste
             return max(dias_estimados, DIAS_MINIMO)
@@ -94,6 +96,8 @@ def _estimar_dias_venta(
     # Fallback: modelo basado en desviación del mercado
     if precio_mercado > 0:
         pct_diff = ((precio_propuesto - precio_mercado) / precio_mercado) * 100
+        # Limitar pct_diff para evitar valores extremos
+        pct_diff = max(min(pct_diff, 200), -200)  # Máximo ±200%
 
         if pct_diff > 0:
             # Más caro que mercado

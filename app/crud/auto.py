@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from app.models.auto import Auto
 from app.schemas.auto import AutoCreate, AutoUpdate
 from typing import Optional
@@ -84,6 +84,12 @@ def get_autos(
         en_stock=en_stock,
         sort_by=sort_by,
         sort_order=sort_order
+    )
+    # Eager load related marca, modelo y estado to avoid N+1 queries
+    query = query.options(
+        selectinload(Auto.marca),
+        selectinload(Auto.modelo),
+        selectinload(Auto.estado)
     )
     return query.offset(skip).limit(limit).all()
 

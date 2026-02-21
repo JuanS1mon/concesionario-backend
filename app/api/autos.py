@@ -59,6 +59,7 @@ def read_autos_paginated(
     en_stock: Optional[bool] = Query(None),
     sort_by: Optional[str] = Query(None),
     sort_order: Optional[str] = Query("asc"),
+    include_images: Optional[bool] = Query(False),
     db: Session = Depends(get_db)
 ):
     autos = get_autos(
@@ -76,6 +77,14 @@ def read_autos_paginated(
         sort_by=sort_by,
         sort_order=sort_order
     )
+    # If client doesn't want images, avoid loading them and return empty list for imagenes
+    if not include_images:
+        for a in autos:
+            # prevent lazy-loading images when serializing
+            try:
+                a.imagenes = []
+            except Exception:
+                pass
     total = get_autos_count(
         db,
         marca_id=marca_id,
