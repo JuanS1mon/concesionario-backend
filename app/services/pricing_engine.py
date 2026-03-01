@@ -4,7 +4,7 @@ Calcula precios sugeridos, competitividad y márgenes basándose en datos de mer
 """
 import statistics
 import logging
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.models.pricing import MarketListing, MarketRawListing
@@ -130,6 +130,21 @@ def _calcular_ajuste_km(km_auto: Optional[int], km_promedio_mercado: Optional[fl
     diferencia_km = km_auto - km_promedio_mercado
     ajuste = (diferencia_km / 10000) * AJUSTE_POR_10K_KM
     return -ajuste  # negativo = descuento, positivo = premium
+
+
+def _trimmed_mean(values: List[float], trim_count: int = 1) -> Optional[float]:
+    """
+    Calcula la media recortada eliminando `trim_count` valores mínimos y máximos.
+    Si hay menos elementos que 2*trim_count+1 retorna la media simple.
+    """
+    if not values:
+        return None
+    vals = sorted(values)
+    n = len(vals)
+    if n <= 2 * trim_count:
+        return statistics.mean(vals)
+    trimmed = vals[trim_count:-trim_count]
+    return statistics.mean(trimmed)
 
 
 def clasificar_competitividad(precio_actual: float, precio_mercado: float) -> str:

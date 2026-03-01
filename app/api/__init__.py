@@ -7,3 +7,4 @@ from . import configuracion_cloudinary
 from . import configuracion_ai
 from . import imagenes
 from . import auth
+from . import market

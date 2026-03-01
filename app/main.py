@@ -1,4 +1,9 @@
 
+# Forzar carga de .env siempre
+import os
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -18,7 +23,8 @@ from app.api import (
     clientes,
     oportunidades,
     ventas,
-    pricing
+    pricing,
+    market
 )
 
 app = FastAPI(root_path="")
@@ -35,14 +41,9 @@ async def force_https_redirects(request, call_next):
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://concesionario-frontend-production.up.railway.app",
-        "http://concesionario-frontend-production.up.railway.app",
-        "https://www.concesionarios.cloud",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://192.168.1.2:3000"
-    ],
+    # En desarrollo permitir todos los orígenes para evitar bloqueos CORS.
+    # Cambiar a orígenes específicos en producción.
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -61,6 +62,7 @@ app.include_router(clientes.router)
 app.include_router(oportunidades.router)
 app.include_router(ventas.router)
 app.include_router(pricing.router)
+app.include_router(market.router)
 
 @app.get("/")
 def root():

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
@@ -16,12 +17,21 @@ router = APIRouter(prefix="/marcas", tags=["marcas"])
 
 @router.get("/", response_model=List[Marca])
 def read_marcas(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    marcas = get_marcas(db, skip=skip, limit=limit)
-    return marcas
+    try:
+        marcas = get_marcas(db, skip=skip, limit=limit)
+        return marcas
+    except OperationalError as e:
+        # Base de datos no disponible
+        raise HTTPException(status_code=503, detail=f"DB connection error: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{marca_id}", response_model=Marca)
 def read_marca(marca_id: int, db: Session = Depends(get_db)):
-    db_marca = get_marca(db, marca_id=marca_id)
+    try:
+        db_marca = get_marca(db, marca_id=marca_id)
+    except OperationalError as e:
+        raise HTTPException(status_code=503, detail=f"DB connection error: {e}")
     if db_marca is None:
         raise HTTPException(status_code=404, detail="Marca no encontrada")
     return db_marca
